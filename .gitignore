@@ -79,6 +79,7 @@ GTAGS
 *.orig
 *~
 \#*#
+*.rej
 
 # generated caf
 arch/arm/mach-msm/smd_rpc_sym.c
@@ -99,4 +100,3 @@ initrd.img
 mkbootfs
 mkbootimg
 output/
-

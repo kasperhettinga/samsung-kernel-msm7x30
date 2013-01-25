@@ -36,7 +36,7 @@
 #define LULZACTIVE_AUTHOR	"tegrak"
 
 // if you changed some codes for optimization, just write your name here.
-#define LULZACTIVE_TUNER "DerTeufel1980 - CastagnaIT - Christopher83"
+#define LULZACTIVE_TUNER "DerTeufel1980"
 
 #define LOGI(fmt...) printk(KERN_INFO "[lulzactive] " fmt)
 #define LOGW(fmt...) printk(KERN_WARNING "[lulzactive] " fmt)

@@ -39,10 +39,6 @@
 #include <asm/io.h>
 #include <linux/uaccess.h>
 
-#ifdef CONFIG_FORCE_FAST_CHARGE
-#include <linux/fastchg.h>
-#endif
-
 // #define DEBUG 1
 #include <linux/device.h>
 
@@ -55,10 +51,6 @@ static int usb_state = 0;
 
 extern int android_usb_get_current_mode(void);
 extern void android_usb_switch(int mode);
-#ifdef CONFIG_USB_EHCI_MSM_72K
-#include <mach/msm72k_otg.h>
-extern void otg_set_mode(int host);
-#endif
 
 #include <linux/pm.h>
 #include <linux/mfd/pmic8058.h>
@@ -96,6 +88,7 @@ u8 MicroUSBStatus=0;
 static u8 MicroJigUSBOnStatus=0;
 static u8 MicroJigUSBOffStatus=0;
 bool MicroJigUARTOffStatus=0;
+int askonstatus;
 EXPORT_SYMBOL(MicroUSBStatus);
 EXPORT_SYMBOL(UsbIndicator);
 u8 FSA9480_Get_USB_Status(void)
@@ -197,6 +190,43 @@ static ssize_t usb_state_store(
 /*sysfs for usb cable's state.*/
 static DEVICE_ATTR(usb_state, 0664, usb_state_show, usb_state_store);
 
+#ifdef _SUPPORT_SAMSUNG_AUTOINSTALLER_
+static int kies_status = 0;
+static ssize_t KiesStatus_switch_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if(kies_status == 1)
+		return sprintf(buf, "%s\n", "START");
+	else if( kies_status == 2)
+		return sprintf(buf, "%s\n", "STOP");
+	else
+		return sprintf(buf, "%s\n", "INIT");
+}
+
+static ssize_t KiesStatus_switch_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	dmsg("buf=%s\n", buf);
+
+	if (strncmp(buf, "START", 5) == 0)
+	{
+		kies_status = 1;
+  	}
+	else if (strncmp(buf, "STOP", 4) == 0)
+	{
+		kies_status = 2;
+		UsbIndicator(2);
+	}
+	else if (strncmp(buf, "INIT", 4) == 0 )
+	{
+		kies_status = 0;
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(KiesStatus, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, KiesStatus_switch_show, KiesStatus_switch_store);
+#endif /* _SUPPORT_SAMSUNG_AUTOINSTALLER_ */
+
+
 struct switch_dev switch_dock_detection = {
 		.name = "dock",	
 };
@@ -261,7 +291,7 @@ int fsa9480_i2c_tx_data(char* txData, int length)
 		printk(KERN_ERR "[FSA9480]: fsa9480_i2c_tx_data error pclient is NULL pointer\n");
 		return -EINVAL;
 	}
-
+	
 
 	rc = i2c_transfer(pclient->adapter, msg, 1);
 	if (rc < 0) {
@@ -292,7 +322,7 @@ int fsa9480_i2c_write(unsigned char u_addr, unsigned char u_data)
 static int fsa9480_i2c_rx_data(char* rxData, int length)
 {
 	int rc;
-
+	
 	struct i2c_msg msgs[] = {
 		{
 			.addr = pclient->addr,
@@ -332,7 +362,7 @@ int fsa9480_i2c_read(unsigned char u_addr, unsigned char *pu_data)
 		printk(KERN_ERR "[FSA9480]: fsa9480_i2c_read error pu_data is NULL pointer\n");
 		return -EINVAL;
 	}
-
+	
 	buf = u_addr;
 	rc = fsa9480_i2c_rx_data(&buf, 1);
 	if (!rc)
@@ -345,7 +375,7 @@ int fsa9480_i2c_read(unsigned char u_addr, unsigned char *pu_data)
 void fsa9480_select_mode(int mode)
 {
 	unsigned char cont_reg = 0;
-
+	
 	printk("[fsa9480_select_mode]: mode = %x\n", mode);
 	if (!pclient) 
 		return;
@@ -354,7 +384,7 @@ void fsa9480_select_mode(int mode)
 	fsa9480_i2c_write(REGISTER_CONTROL, mode); // FSA9480 Set AutoMode
 	fsa9480_i2c_read(REGISTER_CONTROL, &cont_reg); // FSA9480 initilaization check
 	printk("[fsa9480_select_mode]: Changed control reg 0x02 : 0x%x\n", cont_reg);
-
+	
 	/* delay 2 ms */
 	msleep(2);	
 }
@@ -365,7 +395,7 @@ static void fsa9480_chip_init(void)
 {
 	unsigned char cont_reg = 0;
 	int ret = 0;
-
+	
 	printk("[FSA9480] fsa9480_chip_init \n");	
 	if (!pclient) 
 		return;
@@ -381,12 +411,12 @@ static void fsa9480_chip_init(void)
 	fsa9480_i2c_write(REGISTER_TIMINGSET1, (unsigned char)0x6);
 	if (ret < 0)
 		printk("[FSA9480] %s : REGISTER_TIMINGSET1 err %d\n", __func__, ret);
-
+	
 	/* fsa9480 init sequence */
 	fsa9480_i2c_write(REGISTER_CONTROL, 0x1E); // FSA9480 Set AutoMode
 	fsa9480_i2c_read(REGISTER_CONTROL, &cont_reg); // FSA9480 initilaization check
 	printk("[FSA9480]: Initial control reg 0x02 : 0x%x\n", cont_reg);
-
+	
 	/* delay 2 ms */
 	msleep(2);
 	printk(KERN_INFO "[FSA9480]: fsa9480 sensor init sequence done\n");
@@ -424,7 +454,7 @@ static void fsa9480_chip_init(void)
 		curr_usb_status = 1;
 	}
 #endif
-
+	
 }
 
 static int fsa9480_client(struct i2c_client *client)
@@ -478,7 +508,7 @@ void fsa9480_connect_charger(void)	// vbus connected
 		curr_usb_status = 1;
 
 		usb_switch_state(); // re-enable HUB_EN if it should be on
-
+			
 		pr_info("[FSA9480] %s: USB connected...\n", __func__);
 	}
 	else	// consider as dedicated charger any device with vbus power
@@ -582,7 +612,7 @@ static ssize_t usb_switch_show(struct device *dev, struct device_attribute *attr
 	else if (!strcmp(buffer, "0")){
 		sprintf(buf, "USB Switch : PDA_AP");
 	}
-
+		
 	return sprintf(buf, "%s\n", buf);
 }
 
@@ -600,7 +630,7 @@ static ssize_t usb_switch_store(
 
 	fs = get_fs();
 	set_fs(get_ds());
-
+	
 	printk("usb_switch_store ENTRY !! \n");
 
 	if ((fd = sys_open("/persist/usb_sel.bin", O_CREAT|O_WRONLY  ,0)) < 0){ 
@@ -643,7 +673,7 @@ static ssize_t disable_vbus_store(
 		struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
 {
-
+	
 	printk("disable_vbus_store ENTRY \n");
 	disable_vbus_flag = 1;	
 	msm_hsusb_set_vbus_state(0);
@@ -735,7 +765,7 @@ static DEVICE_ATTR(dock, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, dock_switch_show,
 
 void usb_switch_state(void)
 {
-    usb_switch_mode(SWITCH_MSM);
+                usb_switch_mode(SWITCH_MSM);
 }
 
 extern int set_tsp_for_ta_detect(int state);
@@ -753,22 +783,9 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 		vdev2 = 0;
 	}
 #endif
-
+	
 	if (vdev1)
 	{
-#ifdef CONFIG_FORCE_FAST_CHARGE
-		if(
-			(vdev1 == CRA_USB) && 
-			(
-				(force_fast_charge && (!(attach & DETACH) || !curr_usb_status)) || 
-				(!force_fast_charge && (attach & DETACH) && curr_ta_status)
-			)
-		)
-		{
-			vdev1=CRA_DEDICATED_CHG;
-			DEBUG_FSA9480("USB --- FORCE FAST CHARGE\n");
-		}
-#endif
 		switch (vdev1)
 		{		
 			case CRA_AUDIO_TYPE1:
@@ -796,12 +813,13 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 					}
 					if(!charging_boot)
 					{
-					    DEBUG_FSA9480("USB ---!charging_boot\n");
+					DEBUG_FSA9480("USB ---!charging_boot\n");
 						usb_switch_state();
 					} 					
 					curr_usb_status = 1;                    
 					MicroUSBStatus=1;
-					UsbIndicator(1);
+					if((!askonstatus))
+						UsbIndicator(1);
 				}
 				else if(attach & DETACH){
 					DEBUG_FSA9480("USB --- DETACH\n");
@@ -837,7 +855,7 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 			case CRA_CARKIT:
 				DEBUG_FSA9480("CARKIT \n");
 //				printk("[ssam] attach value : 0x%x\n", attach);
-
+				
 				if(attach & ATTACH){
 				    DEBUG_FSA9480("CARKIT_CHARGER --- ATTACH\n");
 				    curr_ta_status = 1;                    
@@ -885,15 +903,7 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 #endif
 				break;                
 			case CRA_USB_OTG:
-				DEBUG_FSA9480("USB_OTG \n"); 
-#ifdef CONFIG_USB_EHCI_MSM_72K
-				if(attach & ATTACH){
-	                otg_set_mode(1);    	                
-				}
-				else if(attach & DETACH){
-	                otg_set_mode(0);    
-                }
-#endif
+				DEBUG_FSA9480("USB_OTG \n");                
 				break;                	
 			default:
 				break;
@@ -956,7 +966,7 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 					MicroJigUARTOffStatus=0;
 					curr_ta_status = 0; // FUEL GAUGE AUTO TEST					
 				}  	
-
+				
 				curr_uart_status = 1;                   
 				if ( ( attach & (ATTACH|DETACH) ) )// FUEL GAUGE AUTO TEST
 					batt_restart();				
@@ -1057,7 +1067,7 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
     	        {
 		        u8 key_mask;
 		        int index = 0;
-
+			
 		        key_mask = (button2 & DOCK_KEY_MASK) >> DOCK_KEY_SHIFT;
 
 		        DEBUG_FSA9480("key_mask 0x%x \n", key_mask);
@@ -1097,7 +1107,7 @@ static void fsa9480_read_interrupt_register(void)
 	fsa9480_i2c_read(REGISTER_INTERRUPT2, &intr2);
 	deb_intr2 = intr2;
 	msleep(5);     
-
+	
 	intb_val = gpio_get_value(142);
 	deb_intb = intb_val;
 	msleep(5);     
@@ -1133,7 +1143,7 @@ static void fsa9480_read_interrupt_register(void)
 	deb_dev2 = dev2;
 
 	printk("[FSA9480] dev1=0x%x, dev2=0x%x, intr1=0x%x, intr2=0x%x\n",dev1,dev2,intr1,intr2);
-
+	
 #if defined(CONFIG_USA_FEATURE)//++ jwjang@tecace : check chip reset 
 /* wrong recognition of cable remove to key press  */
 /* because of surge when unplug cable */
@@ -1163,7 +1173,7 @@ static void fsa9480_read_interrupt_register(void)
 		fsa9480_device1 = dev1;
 		fsa9480_device2 = dev2;
 	}
-
+	
 	if(!dev1 && !dev2 && !intr1 && !intr2)
 	{
 		/* Force update USB status when reading intr failed. */
@@ -1175,10 +1185,10 @@ static void fsa9480_read_interrupt_register(void)
 		{
 		    curr_usb_status = 0;
 			MicroUSBStatus=0;
-
+			
 			UsbIndicator(0);
 			batt_restart(); 			   
-
+			
 			if (charging_boot && !curr_usb_status)
 				pm_power_off();
 
@@ -1275,7 +1285,7 @@ static int fsa9480_probe(struct i2c_client *client, const struct i2c_device_id *
 
 	if(!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		goto exit_check_functionality_failed;		
-
+	
 	if(!(mt = kzalloc( sizeof(struct fsa9480_data), GFP_KERNEL))) {
 		err = -ENOMEM;
 		goto exit_alloc_data_failed;
@@ -1295,7 +1305,7 @@ static int fsa9480_probe(struct i2c_client *client, const struct i2c_device_id *
 	}
 
 	enable_irq_wake(pclient->irq);
-
+	
 	if (device_create_file(switch_dev, &dev_attr_usb_sel) < 0)
 		printk(KERN_ERR "[FSA9480]: Failed to create device file(%s)!\n", dev_attr_usb_sel.attr.name);
 
@@ -1319,7 +1329,7 @@ static int fsa9480_probe(struct i2c_client *client, const struct i2c_device_id *
 	dock_key_input_dev->name = switch_dock_detection.name;
 	set_bit(EV_SYN, dock_key_input_dev->evbit);
 	set_bit(EV_KEY, dock_key_input_dev->evbit);
-
+	
 	for(i=0; i < DOCK_KEY_MAX; i++) 
 	{
 		set_bit(dock_keys[i], dock_key_input_dev->keybit);
@@ -1334,20 +1344,20 @@ static int fsa9480_probe(struct i2c_client *client, const struct i2c_device_id *
 	 switch_dev_register(&switch_dock_detection);
 
 	 usb_switch_mode(SWITCH_MSM);
-
+	 
 	fsa9480_probe_done = 1;
 
 
 	printk("[FSA9480]: probe complete\n");
 	return 0;
-
+	
 exit_alloc_data_failed:
 exit_check_functionality_failed:
-
+	
 	return err;
 }
 
-
+	
 static int __devexit fsa9480_remove(struct i2c_client *client)
 {
 	struct fsa9480_data *mt;
