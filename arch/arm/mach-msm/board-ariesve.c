@@ -143,17 +143,11 @@ EXPORT_SYMBOL(sec_class);
 struct device *switch_dev;
 EXPORT_SYMBOL(switch_dev);
 
-#define MSM_PMEM_SF_SIZE	0x1A00000
+#define MSM_PMEM_SF_SIZE	0x6000000
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 3) /* 4bpp * 3 Pages */
 #else
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 2) /* 4bpp * 2 Pages */
-#endif
-
-#ifdef CONFIG_FB_MSM_HDMI_ADV7520_PANEL
-#define MSM_FB_EXT_BUF_SIZE (1280 * 720 * 2 * 1) /* 2 bpp x 1 page */
-#else
-#define MSM_FB_EXT_BUF_SIZE	0
 #endif
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
@@ -163,12 +157,19 @@ EXPORT_SYMBOL(switch_dev);
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE	0
 #endif
 
-#define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE + MSM_FB_EXT_BUF_SIZE, 4096)
+#define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
 
-#define MSM_PMEM_ADSP_SIZE		0x2D00000
+#define MSM_PMEM_ADSP_SIZE		0x2C00000
 #define MSM_FLUID_PMEM_ADSP_SIZE	0x2800000
 #define PMEM_KERNEL_EBI0_SIZE		0x600000
-#define MSM_PMEM_AUDIO_SIZE		0x200000
+#define MSM_PMEM_AUDIO_SIZE		0x000000
+
+#ifdef CONFIG_ION_MSM
+static struct platform_device ion_dev;
+#define MSM_ION_AUDIO_SIZE	(MSM_PMEM_AUDIO_SIZE + PMEM_KERNEL_EBI0_SIZE)
+#define MSM_ION_SF_SIZE		MSM_PMEM_SF_SIZE
+#define MSM_ION_HEAP_NUM	4
+#endif
 
 #define PMIC_GPIO_INT		27
 #define PMIC_VREG_WLAN_LEVEL	2900
@@ -4020,30 +4021,37 @@ static struct msm_gpio lcdc_gpio_config_data[] = {
 	{ GPIO_CFG(129, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "lcd_reset" },
 };
 
-/* GPIO TLMM: Status */
-#define GPIO_ENABLE	0
-#define GPIO_DISABLE	1
-
-static void config_lcdc_gpio_table(uint32_t *table, int len, unsigned enable)
-{
-	int n, rc;
-
-
-	for (n = 0; n < len; n++) {
-		rc = gpio_tlmm_config(table[n],
-			enable ? GPIO_ENABLE : GPIO_DISABLE);
-		if (rc) {
-			printk(KERN_ERR "%s: gpio_tlmm_config(%#x)=%d\n",
-				__func__, table[n], rc);
-			break;
-		}
-	}
-}
+/* sleep */
+static struct msm_gpio lcdc_gpio_sleep_config_data[] = {
+	{GPIO_CFG(45, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "spi_clk"},
+	{GPIO_CFG(46, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "spi_cs0"},
+	{GPIO_CFG(47, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "spi_mosi"},
+	{GPIO_CFG(129, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), "lcd_reset"},
+};
 
 static void lcdc_config_gpios(int enable)
 {
-	config_lcdc_gpio_table(lcdc_gpio_config_data,
-		ARRAY_SIZE(lcdc_gpio_config_data), enable);
+	struct msm_gpio *lcdc_gpio_cfg_data;
+	struct msm_gpio *lcdc_gpio_sleep_cfg_data;
+	int array_size;
+	int sleep_cfg_arry_size;
+
+	lcdc_gpio_cfg_data = lcdc_gpio_config_data;
+	lcdc_gpio_sleep_cfg_data = lcdc_gpio_sleep_config_data;
+	array_size = ARRAY_SIZE(lcdc_gpio_config_data);
+	sleep_cfg_arry_size = ARRAY_SIZE(lcdc_gpio_sleep_config_data);
+
+ 	if (enable) {
+		msm_gpios_request_enable(lcdc_gpio_cfg_data, array_size);
+	} else {
+		if (lcdc_gpio_sleep_cfg_data) {
+			msm_gpios_enable(lcdc_gpio_sleep_cfg_data, array_size);
+			msm_gpios_free(lcdc_gpio_sleep_cfg_data, array_size);
+		} else {
+			msm_gpios_disable_free(lcdc_gpio_config_data,
+					       array_size);
+		}
+	}
 }
 #endif
 
@@ -4260,39 +4268,24 @@ static struct platform_device qcedev_device = {
 static unsigned char quickvx_mddi_client = 1;
 
 static struct regulator *mddi_ldo17;
-static struct regulator *mddi_lcd;
+static struct regulator *mddi_ldo15;
 
 static int display_common_init(void)
 {
-	struct regulator_bulk_data regs[2] = {
-		{ .supply = "ldo17", .min_uV = 1800000, .max_uV = 1800000},
-		{ .supply = "ldo15", .min_uV = 3000000, .max_uV = 3000000},
-	};
-
 	int rc = 0;
 
-	rc = regulator_bulk_get(NULL, ARRAY_SIZE(regs), regs);
-	if (rc) {
+	mddi_ldo17 = regulator_get(NULL, "ldo17");
+	if (IS_ERR(mddi_ldo17)) {
 		pr_err("%s: regulator_bulk_get failed: %d\n",
-			__func__, rc);
-		goto bail;
+				__func__, rc);
 	}
 
-	rc = regulator_bulk_set_voltage(ARRAY_SIZE(regs), regs);
-	if (rc) {
-		pr_err("%s: regulator_bulk_set_voltage failed: %d\n",
-			__func__, rc);
-		goto put_regs;
+	mddi_ldo15 = regulator_get(NULL, "ldo15");
+	if (IS_ERR(mddi_ldo15)) {
+		pr_err("%s: regulator_bulk_get failed: %d\n",
+				__func__, rc);
 	}
 
-	mddi_ldo17 = regs[0].consumer;
-	mddi_lcd   = regs[1].consumer;	/* ldo15 */
-
-	return rc;
-
-put_regs:
-	regulator_bulk_free(ARRAY_SIZE(regs), regs);
-bail:
 	return rc;
 }
 
@@ -4310,38 +4303,40 @@ static int display_common_power(int on)
 	if (unlikely(!display_regs_initialized)) {
 		rc = display_common_init();
 		if (rc) {
-			pr_err("%s: regulator init failed: %d\n", __func__, rc);
+			pr_err("%s: regulator init failed: %d\n",
+					__func__, rc);
 			return rc;
 		}
 		display_regs_initialized = true;
 	}
 
+
 	if (on) {
 		rc = regulator_enable(mddi_ldo17);
 		if (rc) {
-			pr_err("%s: LDO17 regulator enable failed (%d)\n",
-				__func__, rc);
+			pr_err("%s: LDO20 regulator enable failed (%d)\n",
+			       __func__, rc);
 			return rc;
 		}
 
-		rc = regulator_enable(mddi_lcd);
+		rc = regulator_enable(mddi_ldo15);
 		if (rc) {
 			pr_err("%s: LCD regulator enable failed (%d)\n",
 				__func__, rc);
 			return rc;
 		}
 
-		mdelay(5);	/* ensure power is stable */
+		mdelay(5);		/* ensure power is stable */
 
 	} else {
 		rc = regulator_disable(mddi_ldo17);
 		if (rc) {
-			pr_err("%s: LDO17 regulator disable failed (%d)\n",
-				__func__, rc);
+			pr_err("%s: LDO20 regulator disable failed (%d)\n",
+			       __func__, rc);
 			return rc;
 		}
 
-		rc = regulator_disable(mddi_lcd);
+		rc = regulator_disable(mddi_ldo15);
 		if (rc) {
 			pr_err("%s: LCD regulator disable failed (%d)\n",
 				__func__, rc);
@@ -4360,9 +4355,8 @@ static int msm_fb_mddi_sel_clk(u32 *clk_rate)
 
 static int msm_fb_mddi_client_power(u32 client_id)
 {
-	struct regulator *mddi_ldo20;
+	struct regulator *vreg_ldo20;
 	int rc;
-
 	printk(KERN_NOTICE "\n client_id = 0x%x", client_id);
 	/* Check if it is Quicklogic client */
 	if (client_id == 0xc5835800) {
@@ -4374,21 +4368,18 @@ static int msm_fb_mddi_client_power(u32 client_id)
 		gpio_set_value_cansleep(PM8058_GPIO_PM_TO_SYS(
 			PMIC_GPIO_QUICKVX_CLK), 0);
 
-		mddi_ldo20 = regulator_get(NULL, "gp13");
+		vreg_ldo20 = regulator_get(NULL, "gp13");
 
-		if (IS_ERR(mddi_ldo20)) {
-			rc = PTR_ERR(mddi_ldo20);
-			pr_err("%s: could not get ldo20: %d\n", __func__, rc);
+		if (IS_ERR(vreg_ldo20)) {
+			rc = PTR_ERR(vreg_ldo20);
+			pr_err("%s: gp13 vreg get failed (%d)\n",
+				   __func__, rc);
 			return rc;
 		}
-		rc = regulator_set_voltage(mddi_ldo20, 1500000, 1500000);
+		rc = regulator_enable(vreg_ldo20);
 		if (rc) {
-			pr_err("%s: could not set ldo20 voltage: %d\n", __func__, rc);
-			return rc;
-		}
-		rc = regulator_enable(mddi_ldo20);
-		if (rc) {
-			pr_err("%s: could not enable ldo20: %d\n", __func__, rc);
+			pr_err("%s: LDO20 vreg enable failed (%d)\n",
+			       __func__, rc);
 			return rc;
 		}
 	}
@@ -4402,21 +4393,11 @@ static struct mddi_platform_data mddi_pdata = {
 	.mddi_client_power = msm_fb_mddi_client_power,
 };
 
-int mdp_core_clk_rate_table[] = {
-	122880000,
-	122880000,
-	192000000,
-	192000000,
-};
-
 static struct msm_panel_common_pdata mdp_pdata = {
 	.hw_revision_addr = 0xac001270,
 	.gpio = 30,
-	.mdp_core_clk_rate = 122880000,
-	.mdp_core_clk_table = mdp_core_clk_rate_table,
-	.num_mdp_clk = ARRAY_SIZE(mdp_core_clk_rate_table),
+	.mdp_max_clk = 192000000,
 	.mdp_rev = MDP_REV_40,
-	.mem_hid = MEMTYPE_EBI0,
 };
 
 static struct msm_gpio lcd_panel_gpios[] = {
@@ -4487,7 +4468,7 @@ static int lcdc_panel_power(int on)
 	int flag_on = !!on;
 	static int lcdc_power_save_on;
 
-	return 0;
+	return 0;	
 
 	if (lcdc_power_save_on == flag_on)
 		return 0;
@@ -4559,7 +4540,7 @@ static struct tvenc_platform_data atv_pdata = {
 static void __init msm_fb_add_devices(void)
 {
 	msm_fb_register_device("mdp", &mdp_pdata);
-	//msm_fb_register_device("pmdh", &mddi_pdata);
+	msm_fb_register_device("pmdh", &mddi_pdata);
 	msm_fb_register_device("lcdc", &lcdc_pdata);
 	msm_fb_register_device("tvenc", &atv_pdata);
 #ifdef CONFIG_FB_MSM_TVOUT
@@ -4941,7 +4922,7 @@ static int bluetooth_power(int on)
 
 	int bahama_not_marimba = bahama_present();
 
-	if (bahama_not_marimba == -1) {
+	if (bahama_not_marimba < 0) {
 		printk(KERN_WARNING "%s: bahama_present: %d\n",
 		       __func__, bahama_not_marimba);
 		return -ENODEV;
@@ -5408,6 +5389,9 @@ static struct platform_device *devices[] __initdata = {
 	&msm_adc_device,
 	&msm_ebi0_thermal,
 	&msm_ebi1_thermal,
+#ifdef CONFIG_ION_MSM
+	&ion_dev,
+#endif
 #ifdef CONFIG_SAMSUNG_JACK
 	&sec_device_jack,
 #endif
@@ -6229,7 +6213,9 @@ static struct mmc_platform_data msm7x30_sdc3_data = {
 	.ocr_mask	= MMC_VDD_27_28 | MMC_VDD_28_29,
 	.translate_vdd	= msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
+#ifdef CONFIG_MMC_MSM_SDIO_SUPPORT
 	.sdiowakeup_irq = MSM_GPIO_TO_INT(118),
+#endif
 	.msmsdcc_fmin	= 144000,
 	.msmsdcc_fmid	= 24576000,
 	.msmsdcc_fmax	= 49152000,
@@ -7423,6 +7409,8 @@ static int __init pmem_kernel_ebi0_size_setup(char *p)
 }
 early_param("pmem_kernel_ebi0_size", pmem_kernel_ebi0_size_setup);
 
+
+
 static struct memtype_reserve msm7x30_reserve_table[] __initdata = {
 	[MEMTYPE_SMI] = {
 	},
@@ -7463,6 +7451,7 @@ static void __init reserve_pmem_memory(void)
 	msm7x30_reserve_table[MEMTYPE_EBI0].size += pmem_kernel_ebi0_size;
 #endif
 }
+
 
 static void __init reserve_mdp_memory(void)
 {
