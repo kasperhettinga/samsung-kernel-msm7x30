@@ -5152,8 +5152,6 @@ int msmsdcc_sdio_al_lpm(struct mmc_host *mmc, bool enable)
 #endif
 
 #ifdef CONFIG_PM
-static int msm_sdcc_suspend_state;
-#define WLAN_nRST 127
 
 static int
 msmsdcc_runtime_suspend(struct device *dev)
@@ -5167,14 +5165,6 @@ msmsdcc_runtime_suspend(struct device *dev)
 		rc = 0;
 		goto out;
 	}
-
-	if ((host->pdev_id == 1) && (gpio_get_value(WLAN_nRST))) {
-		host->mmc->pm_flags |= MMC_PM_KEEP_POWER;
-		printk(KERN_INFO "%s: Enter WIFI suspend\n", __func__);
-	}
-
-	if ((!msm_sdcc_suspend_state) && (host->pdev_id == 4))
-		return -EBUSY;
 
 	pr_debug("%s: %s: start\n", mmc_hostname(mmc), __func__);
 	if (mmc) {
@@ -5246,9 +5236,6 @@ msmsdcc_runtime_resume(struct device *dev)
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
-	if ((host->pdev_id == 1) && (gpio_get_value(WLAN_nRST)))
-		printk(KERN_INFO "%s: Enter WIFI resume\n", __func__);
-
 	pr_debug("%s: %s: start\n", mmc_hostname(mmc), __func__);
 	if (mmc) {
 		if (mmc->card && mmc_card_sdio(mmc->card) &&
@@ -5307,7 +5294,6 @@ static int msmsdcc_pm_suspend(struct device *dev)
 	struct msmsdcc_host *host = mmc_priv(mmc);
 	int rc = 0;
 
-	msm_sdcc_suspend_state = 1;
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
@@ -5366,7 +5352,6 @@ static int msmsdcc_pm_resume(struct device *dev)
 	struct msmsdcc_host *host = mmc_priv(mmc);
 	int rc = 0;
 
-	msm_sdcc_suspend_state = 0;
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
