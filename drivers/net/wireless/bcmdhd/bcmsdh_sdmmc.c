@@ -1300,6 +1300,8 @@ sdioh_start(sdioh_info_t *si, int stage)
 	int ret;
 	sdioh_info_t *sd = gInstance->sd;
 
+	if (!sd) return (0);
+
 	/* Need to do this stages as we can't enable the interrupt till
 		downloading of the firmware is complete, other wise polling
 		sdio access will come in way
