@@ -1299,18 +1299,21 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 	DHD_OS_WAKE_LOCK(&dhd->pub);
 
-	/* Reject if down */
-	if (!dhd->pub.up || (dhd->pub.busstate == DHD_BUS_DOWN)) {
+	/* Reject if down
+	 *
+	 * CSP #506108
+	 *   kernel panic issue when first bootup time,
+	 *   rmmod without interface down make unnecessary hang event.
+	 */
+	if (dhd->pub.busstate == DHD_BUS_DOWN || dhd->pub.hang_was_sent) {
 		DHD_ERROR(("%s: xmit rejected pub.up=%d busstate=%d \n",
 			__FUNCTION__, dhd->pub.up, dhd->pub.busstate));
 		netif_stop_queue(net);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 		/* Send Event when bus down detected during data session */
-		if (dhd->pub.busstate == DHD_BUS_DOWN)  {
+		if (dhd->pub.up) {
 			DHD_ERROR(("%s: Event HANG sent up\n", __FUNCTION__));
 			net_os_send_hang_message(net);
 		}
-#endif
 		DHD_OS_WAKE_UNLOCK(&dhd->pub);
 		return -ENODEV;
 	}
@@ -1715,6 +1718,10 @@ static void dhd_watchdog(ulong data)
 {
 	dhd_info_t *dhd = (dhd_info_t *)data;
 	unsigned long flags;
+
+	/* To avoid kernel panic */
+	if (!dhd->wd_timer_valid)
+		return;
 
 	DHD_OS_WAKE_LOCK(&dhd->pub);
 	if (dhd->pub.dongle_reset) {
@@ -3845,11 +3852,28 @@ void dhd_detach(dhd_pub_t *dhdp)
 
 	DHD_TRACE(("%s: Enter state 0x%x\n", __FUNCTION__, dhd->dhd_state));
 
+	/*
+	 * CSP #506108
+	 *   kernel panic issue when first bootup time,
+	 *   rmmod without interface down make unnecessary hang event.
+	 */
+	dhd->pub.up = 0;
+
 	if (!(dhd->dhd_state & DHD_ATTACH_STATE_DONE)) {
 		/* Give sufficient time for threads to start running in case
 		 * dhd_attach() has failed
 		 */
 		osl_delay(1000*100);
+	}
+
+	/* CSP#482857: Change the location of dhd_bus_detach()
+	 * to avoid Kernel panic problem
+	 */
+	if (dhd->dhd_state & DHD_ATTACH_STATE_PROT_ATTACH) {
+		dhd_bus_detach(dhdp);
+
+		if (dhdp->prot)
+			dhd_prot_detach(dhdp);
 	}
 
 #ifdef ARP_OFFLOAD_SUPPORT
@@ -3933,12 +3957,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 		else
 #endif /* DHDTHREAD */
 		tasklet_kill(&dhd->tasklet);
-	}
-	if (dhd->dhd_state & DHD_ATTACH_STATE_PROT_ATTACH) {
-		dhd_bus_detach(dhdp);
-
-		if (dhdp->prot)
-			dhd_prot_detach(dhdp);
 	}
 
 #ifdef WL_CFG80211

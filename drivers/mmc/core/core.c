@@ -1961,9 +1961,6 @@ int mmc_suspend_host(struct mmc_host *host)
 	if (!err && !mmc_card_keep_power(host))
 		mmc_power_off(host);
 
-	if (!host->card || host->index == 1)
-		mdelay(50);
-
 	return err;
 }
 
@@ -2026,9 +2023,7 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 {
 	struct mmc_host *host = container_of(
 		notify_block, struct mmc_host, pm_notify);
-#ifdef CONFIG_BCMDHD
-	struct msmsdcc_host *msmhost = mmc_priv(host);
-#endif
+
 	unsigned long flags;
 
 
@@ -2072,12 +2067,6 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		host->rescan_disable = 0;
 		spin_unlock_irqrestore(&host->lock, flags);
 
-#ifdef CONFIG_BCMDHD
-		if (host->card && msmhost && msmhost->pdev_id == 1)
-			printk(KERN_INFO"%s(): WLAN SKIP DETECT CHANGE\n",
-					__func__);
-		else
-#endif
 		mmc_detect_change(host, 0);
 
 	}

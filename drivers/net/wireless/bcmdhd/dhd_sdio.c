@@ -1002,6 +1002,12 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt)
 			ASSERT(((uintptr)frame % DHD_SDALIGN) == 0);
 			pad1 = 0;
 		} else {
+			/* Adjust pad value to fix firmware crash problems
+			 * because of odd start address of the frame
+			 * (CSP#455126)
+			 */
+			if ((int)frame & 1)
+				pad1--;
 			PKTPUSH(osh, pkt, pad1);
 			frame = (uint8*)PKTDATA(osh, pkt);
 

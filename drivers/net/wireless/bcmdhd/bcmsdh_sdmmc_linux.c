@@ -257,6 +257,9 @@ sdioh_sdmmc_osinit(sdioh_info_t *sd)
 {
 	struct sdos_info *sdos;
 
+	if(!sd)
+		return BCME_BADARG;
+
 	sdos = (struct sdos_info*)MALLOC(sd->osh, sizeof(struct sdos_info));
 	sd->sdos_info = (void*)sdos;
 	if (sdos == NULL)
@@ -283,6 +286,9 @@ sdioh_interrupt_set(sdioh_info_t *sd, bool enable)
 {
 	ulong flags;
 	struct sdos_info *sdos;
+
+	if(!sd)
+		return BCME_BADARG;
 
 	sd_trace(("%s: %s\n", __FUNCTION__, enable ? "Enabling" : "Disabling"));
 
