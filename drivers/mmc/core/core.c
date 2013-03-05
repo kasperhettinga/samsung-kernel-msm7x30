@@ -2023,7 +2023,13 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 {
 	struct mmc_host *host = container_of(
 		notify_block, struct mmc_host, pm_notify);
+<<<<<<< HEAD
 
+=======
+#ifdef CONFIG_BCMDHD
+	struct msmsdcc_host *msmhost = mmc_priv(host);
+#endif
+>>>>>>> FETCH_HEAD
 	unsigned long flags;
 
 
@@ -2067,6 +2073,12 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		host->rescan_disable = 0;
 		spin_unlock_irqrestore(&host->lock, flags);
 
+#ifdef CONFIG_BCMDHD
+		if (host->card && msmhost && msmhost->pdev_id == 1)
+			printk(KERN_INFO"%s(): WLAN SKIP DETECT CHANGE\n",
+					__func__);
+		else
+#endif
 		mmc_detect_change(host, 0);
 
 	}
