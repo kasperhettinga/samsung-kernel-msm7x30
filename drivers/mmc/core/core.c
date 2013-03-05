@@ -2023,13 +2023,10 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 {
 	struct mmc_host *host = container_of(
 		notify_block, struct mmc_host, pm_notify);
-<<<<<<< HEAD
 
-=======
 #ifdef CONFIG_BCMDHD
 	struct msmsdcc_host *msmhost = mmc_priv(host);
 #endif
->>>>>>> FETCH_HEAD
 	unsigned long flags;
 
 
