@@ -159,7 +159,6 @@ startwrite:
 		}
 	set_fs(oldfs);
 	filp_close(fp_mac, NULL);
-	//}
 
 	/* check .mac.info file is 0 byte */
 	fp_mac = filp_open(filepath_data, O_RDONLY, 0);
