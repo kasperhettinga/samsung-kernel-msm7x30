@@ -41,6 +41,7 @@
 
 #ifdef CONFIG_FORCE_FAST_CHARGE
 #include <linux/fastchg.h>
+static int forced_usb_type = 0;
 #endif
 
 // #define DEBUG 1
@@ -757,15 +758,19 @@ static void fsa9480_process_device(u8 dev1, u8 dev2, u8 attach)
 	if (vdev1)
 	{
 #ifdef CONFIG_FORCE_FAST_CHARGE
-		if(
+		if( !charging_boot && 
 			(vdev1 == CRA_USB) && 
 			(
-				(force_fast_charge && (!(attach & DETACH) || !curr_usb_status)) || 
-				(!force_fast_charge && (attach & DETACH) && curr_ta_status)
+				(force_fast_charge && ((attach & ATTACH) || forced_usb_type)) || 
+				(!force_fast_charge && !(attach & ATTACH) && forced_usb_type)
 			)
 		)
 		{
 			vdev1=CRA_DEDICATED_CHG;
+            if (attach & ATTACH)
+                forced_usb_type = 1;
+            if (attach & DETACH)
+                forced_usb_type = 0;
 			DEBUG_FSA9480("USB --- FORCE FAST CHARGE\n");
 		}
 #endif
