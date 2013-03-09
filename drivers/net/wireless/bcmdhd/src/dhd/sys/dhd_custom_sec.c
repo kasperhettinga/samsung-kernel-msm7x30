@@ -152,17 +152,17 @@ startwrite:
 				sizeof(buf), &fp_mac->f_pos);
 			if (ret < 0)
 				DHD_ERROR(("[WIFI] Mac address [%s] Failed to"
-				" write into File: %s\n", buf, filepath));
+				" write into File: %s\n", buf, filepath_data));
 			else
 				DHD_INFO(("[WIFI] Mac address [%s] written"
-				" into File: %s\n", buf, filepath));
+				" into File: %s\n", buf, filepath_data));
 		}
 	set_fs(oldfs);
 	filp_close(fp_mac, NULL);
-	}
+	//}
 
 	/* check .mac.info file is 0 byte */
-	fp_mac = filp_open(filepath, O_RDONLY, 0);
+	fp_mac = filp_open(filepath_data, O_RDONLY, 0);
 	ret = kernel_read(fp_mac, 0, buf, 18);
 
 	if ((ret == 0) && (retry_count++ < 3)) {
