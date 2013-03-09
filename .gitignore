@@ -96,7 +96,7 @@ initramfs
 crea.sh
 
 Build
-initrd.img
+ramdisk.img
 mkbootfs
 mkbootimg
 output/
