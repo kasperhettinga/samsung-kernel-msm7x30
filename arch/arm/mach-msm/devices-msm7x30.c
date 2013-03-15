@@ -454,8 +454,8 @@ struct resource ram_console_resources[] = {
 };
 
 struct platform_device ram_console_device = {
-	.name = "ram_console",
-	.id = -1,
+	.name		= "ram_console",
+	.id		= -1,
 	.num_resources  = ARRAY_SIZE(ram_console_resources),
 	.resource       = ram_console_resources,
 };
