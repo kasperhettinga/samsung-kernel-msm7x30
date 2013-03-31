@@ -10,7 +10,8 @@ MACKAY_VER="Mackay_1.3"
 
 export ARCH=arm
 export LOCALVERSION="-"`echo $MACKAY_VER`
-export CROSS_COMPILE=/home/kasper/android/cm101/prebuilts/gcc/linux-x86/arm/arm-eabi-4.6/bin/arm-eabi-
+# export CROSS_COMPILE=/home/kasper/android/cm101/prebuilts/gcc/linux-x86/arm/arm-eabi-4.6/bin/arm-eabi-
+export CROSS_COMPILE=/home/kasper/android/toolchains/arm-cortex_a8-linux-gnueabi-linaro_4.7.3-2013.02/bin/arm-cortex_a8-linux-gnueabi-
 
 BASE_DIR=/home/kasper/android/cm101/kernel/samsung
 SOURCE_DIR=`echo $BASE_DIR`/msm7x30
